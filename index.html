@@ -145,7 +145,7 @@
         <div class="logo" aria-hidden="true"></div>
         <div>
           <h1>Mini Music Player</h1>
-          <div class="small">Android向け / PWA対応（端末のファイルを選んで再生） <span class="pill">Ver 1.00</span></div>
+          <div class="small">Android向け / PWA対応（端末のファイルを選んで再生） <span class="pill">Ver 1.01</span></div>
         </div>
       </div>
       <div class="seg" role="tablist" aria-label="view">
@@ -271,7 +271,7 @@
   const $ = (q)=>document.querySelector(q);
 
   // App version
-  const APP_VERSION = "1.00";
+  const APP_VERSION = "1.01";
 
   const audio = $("#audio");
   const playBtn = $("#playBtn");
@@ -567,7 +567,7 @@
   }
 
   function loadFiles(fileList){
-    const arr = Array.from(fileList || []).filter(f=> f && f.type && f.type.startsWith("audio/"));
+    const arr = Array.from(fileList || []).filter(f=> f && isAudioLike(f.name, f.type));
     if (!arr.length){ toast("音声ファイルがない"); return; }
     const newTracks = arr.map(parseFileToTrack);
     tracks.push(...newTracks);
