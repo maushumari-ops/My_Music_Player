@@ -100,7 +100,25 @@
       border:1px solid rgba(255,255,255,.12); outline:none;
       background: rgba(255,255,255,.04); color:var(--text);
     }
-  </style>
+  
+    /* ---- layout safety: prevent horizontal overflow on narrow screens ---- */
+    html, body { overflow-x: hidden; }
+    .wrap { overflow-x: hidden; }
+    .card { overflow-x: hidden; }
+    .item, .meta, .sub { min-width: 0; }
+    .pill{
+      max-width: 100%;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    /* slightly smaller icon buttons on very narrow screens */
+    @media (max-width: 380px){
+      .iconbtn{ width:30px; height:30px; border-radius:11px; }
+      .iconbtn.mid{ width:36px; height:36px; border-radius:13px; }
+    }
+
+</style>
 </head>
 <body>
   <div class="wrap">
@@ -168,6 +186,8 @@
             <div class="row">
               <button class="btn primary" id="pickFilesBtn">曲を選ぶ</button>
               <button class="btn primary" id="pickFolderBtn">フォルダ</button>
+              <button class="btn" id="restoreFolderBtn" title="記憶したフォルダから復元">復元</button>
+              <button class="btn" id="forgetFolderBtn" title="記憶したフォルダを解除">解除</button>
               <button class="btn" id="clearLibBtn">クリア</button>
             </div>
           </div>
@@ -176,6 +196,7 @@
             <div class="small" style="margin-top:8px;">
               読み込み数：<span id="libCount" class="pill">0</span>
               <span class="pill">※端末の中身はアップロードされない</span>
+              <div class="small" style="margin-top:8px;">記憶フォルダ：<span id="folderStatus" class="pill">未設定</span></div>
             </div>
           </div>
           <div class="list" id="libList"></div>
@@ -248,6 +269,209 @@
   const search  = $("#search");
   const fileInput   = $("#fileInput");
   const folderInput = $("#folderInput");
+
+  const restoreFolderBtn = $("#restoreFolderBtn");
+  const forgetFolderBtn = $("#forgetFolderBtn");
+  const folderStatus = $("#folderStatus");
+
+  // ---- Remembered folder (A) ----
+  // Uses File System Access API when available (Chrome/Android supports it on many versions).
+  // We store the directory handle in IndexedDB so it can be reused next launch.
+  const DB_NAME = "mini-player-db";
+  const DB_STORE = "kv";
+  const DB_KEY_DIR = "musicDirHandle_v1";
+
+  function idbOpen(){
+    return new Promise((resolve,reject)=>{
+      const req = indexedDB.open(DB_NAME, 1);
+      req.onupgradeneeded = ()=> {
+        const db = req.result;
+        if (!db.objectStoreNames.contains(DB_STORE)) db.createObjectStore(DB_STORE);
+      };
+      req.onsuccess = ()=> resolve(req.result);
+      req.onerror = ()=> reject(req.error);
+    });
+  }
+  async function idbGet(key){
+    const db = await idbOpen();
+    return new Promise((resolve,reject)=>{
+      const tx = db.transaction(DB_STORE, "readonly");
+      const st = tx.objectStore(DB_STORE);
+      const req = st.get(key);
+      req.onsuccess = ()=> resolve(req.result);
+      req.onerror = ()=> reject(req.error);
+      tx.oncomplete = ()=> db.close();
+    });
+  }
+  async function idbSet(key, val){
+    const db = await idbOpen();
+    return new Promise((resolve,reject)=>{
+      const tx = db.transaction(DB_STORE, "readwrite");
+      const st = tx.objectStore(DB_STORE);
+      const req = st.put(val, key);
+      req.onsuccess = ()=> resolve(true);
+      req.onerror = ()=> reject(req.error);
+      tx.oncomplete = ()=> db.close();
+    });
+  }
+  async function idbDel(key){
+    const db = await idbOpen();
+    return new Promise((resolve,reject)=>{
+      const tx = db.transaction(DB_STORE, "readwrite");
+      const st = tx.objectStore(DB_STORE);
+      const req = st.delete(key);
+      req.onsuccess = ()=> resolve(true);
+      req.onerror = ()=> reject(req.error);
+      tx.oncomplete = ()=> db.close();
+    });
+  }
+
+  function supportsDirHandle(){
+    return !!window.showDirectoryPicker;
+  }
+
+  const AUDIO_EXT = new Set(["mp3","m4a","aac","wav","flac","ogg","opus","mp4","webm"]);
+  function isAudioLike(name, type){
+    if (type && type.startsWith("audio/")) return true;
+    const m = (name||"").toLowerCase().match(/\.([a-z0-9]+)$/);
+    return m ? AUDIO_EXT.has(m[1]) : false;
+  }
+
+  async function scanDir(dirHandle){
+    // Collect audio files recursively (depth-first).
+    const found = [];
+    async function walk(handle, rel){
+      for await (const [name, h] of handle.entries()){
+        if (h.kind === "file"){
+          try{
+            const file = await h.getFile();
+            if (!isAudioLike(name, file.type)) continue;
+            // add path info for display
+            const t = parseFileToTrack(file, rel || "");
+            found.push(t);
+          }catch{}
+        }else if (h.kind === "directory"){
+          // skip hidden folders to reduce noise
+          if ((name||"").startsWith(".")) continue;
+          await walk(h, rel ? (rel + "/" + name) : name);
+        }
+        // soft limit to avoid freezing on huge libraries
+        if (found.length >= 4000) return;
+      }
+    }
+    await walk(dirHandle, "");
+    return found;
+  }
+
+  async function updateFolderStatus(){
+    let s = "未設定";
+    if (!supportsDirHandle()){
+      s = "未対応（通常フォルダ選択）";
+      folderStatus.textContent = s;
+      restoreFolderBtn.disabled = true;
+      forgetFolderBtn.disabled = true;
+      return;
+    }
+    try{
+      const h = await idbGet(DB_KEY_DIR);
+      if (!h){
+        folderStatus.textContent = "未設定";
+        restoreFolderBtn.disabled = true;
+        forgetFolderBtn.disabled = true;
+        return;
+      }
+      // We don't know folder name reliably; show "設定済み"
+      const perm = await h.queryPermission({mode:"read"}).catch(()=> "prompt");
+      const nm = (h && h.name) ? h.name : "フォルダ";
+      folderStatus.textContent = perm === "granted" ? `${nm}（設定済み）` : `${nm}（要許可）`;
+      restoreFolderBtn.disabled = false;
+      forgetFolderBtn.disabled = false;
+    }catch{
+      folderStatus.textContent = "未設定";
+      restoreFolderBtn.disabled = true;
+      forgetFolderBtn.disabled = true;
+    }
+  }
+
+  async function rememberFolderAndLoad(){
+    if (!supportsDirHandle()){
+      // fallback: regular folder input (not persistent)
+      folderInput.click();
+      return;
+    }
+    try{
+      const dir = await window.showDirectoryPicker({ mode: "read" });
+      // ask for permission now
+      const perm = await dir.requestPermission({mode:"read"}).catch(()=> "prompt");
+      if (perm !== "granted"){
+        toast("フォルダの許可が必要");
+        return;
+      }
+      // try to make storage persistent (best effort)
+      if (navigator.storage && navigator.storage.persist) {
+        try{ await navigator.storage.persist(); }catch{}
+      }
+      await idbSet(DB_KEY_DIR, dir);
+      await updateFolderStatus();
+
+      toast("フォルダを記憶して読み込み中…");
+      const found = await scanDir(dir);
+      tracks = found;
+      $("#libCount").textContent = String(tracks.length);
+      // reset queue to library if empty or mismatch
+      queue = tracks.map(t=>t.id);
+      renderLibrary();
+      renderQueue();
+      if (queue.length) setCurrent(queue[0], {autoplay:false});
+      toast(`復元：${tracks.length}曲`);
+    }catch(e){
+      toast("フォルダ選択をキャンセル");
+    }
+  }
+
+  async function restoreRememberedFolder(){
+    if (!supportsDirHandle()){
+      toast("この端末は記憶フォルダ復元が未対応。フォルダを選んでね。");
+      folderInput.click();
+      return;
+    }
+    const dir = await idbGet(DB_KEY_DIR);
+    if (!dir){
+      toast("記憶フォルダがない（まずフォルダを選んでね）");
+      return;
+    }
+    let perm = await dir.queryPermission({mode:"read"}).catch(()=> "prompt");
+    if (perm !== "granted"){
+      perm = await dir.requestPermission({mode:"read"}).catch(()=> "prompt");
+    }
+    if (perm !== "granted"){
+      toast("許可が必要（もう一回「フォルダ」で選び直してもOK）");
+      await updateFolderStatus();
+      return;
+    }
+    toast("記憶フォルダから復元中…");
+    const found = await scanDir(dir);
+    tracks = found;
+    $("#libCount").textContent = String(tracks.length);
+    queue = tracks.map(t=>t.id);
+    renderLibrary();
+    renderQueue();
+    if (queue.length) setCurrent(queue[0], {autoplay:false});
+    toast(`復元：${tracks.length}曲`);
+    await updateFolderStatus();
+  }
+
+  async function forgetRememberedFolder(){
+    if (!confirm("記憶したフォルダを解除する？")) return;
+    await idbDel(DB_KEY_DIR);
+    await updateFolderStatus();
+    toast("解除した");
+  }
+
+  // Hook buttons
+  restoreFolderBtn?.addEventListener("click", ()=> restoreRememberedFolder());
+  forgetFolderBtn?.addEventListener("click", ()=> forgetRememberedFolder());
+
   const toastEl = $("#toast");
 
   const npIdx    = $("#npIdx");
@@ -280,14 +504,28 @@
     plCard.style.display  = pl  ? "" : "none";
   }
 
-  function parseFileToTrack(file){
-    const rel = file.webkitRelativePath ? file.webkitRelativePath.split("/").slice(0,-1).join("/") : "";
+  function fnv1a36(str){
+    let h = 2166136261;
+    for (let i=0;i<str.length;i++){
+      h ^= str.charCodeAt(i);
+      h = Math.imul(h, 16777619);
+    }
+    return (h >>> 0).toString(36);
+  }
+  function stableTrackId(file, rel){
+    const key = `${rel||""}|${file.name||""}|${file.size||0}|${file.lastModified||0}`;
+    return fnv1a36(key);
+  }
+  function parseFileToTrack(file, relOverride){
+    const rel = (relOverride !== undefined)
+      ? (relOverride||"")
+      : (file.webkitRelativePath ? file.webkitRelativePath.split("/").slice(0,-1).join("/") : "");
     const base = file.name.replace(/\.[^.]+$/, "");
     let artist = "";
     let name = base;
     const m = base.match(/^\s*(.+?)\s*-\s*(.+?)\s*$/);
     if (m){ artist = m[1].trim(); name = m[2].trim(); }
-    return { id: mkId(), name, artist, rel, file };
+    return { id: stableTrackId(file, rel), name, artist, rel, file };
   }
 
   function loadFiles(fileList){
@@ -305,7 +543,7 @@
   }
 
   $("#pickFilesBtn").addEventListener("click", ()=> fileInput.click());
-  $("#pickFolderBtn").addEventListener("click", ()=> folderInput.click());
+  $("#pickFolderBtn").addEventListener("click", ()=> rememberFolderAndLoad());
   fileInput.addEventListener("change", (e)=>{ loadFiles(e.target.files); fileInput.value=""; });
   folderInput.addEventListener("change", (e)=>{ loadFiles(e.target.files); folderInput.value=""; });
 
@@ -333,6 +571,10 @@
     audio.src = currentUrl;
 
     updateNowPlaying();
+  // remembered folder status (A)
+  updateFolderStatus();
+  // auto-restore if already permitted
+  (async()=>{ try{ const h = supportsDirHandle()? await idbGet(DB_KEY_DIR): null; if(h){ const p = await h.queryPermission({mode:"read"}).catch(()=>"prompt"); if(p==="granted"){ restoreRememberedFolder(); } } }catch{} })();
     renderLibrary();
     renderQueue();
     renderPlaylists();
@@ -461,6 +703,10 @@
         queue.splice(idx,1);
         renderQueue();
         updateNowPlaying();
+  // remembered folder status (A)
+  updateFolderStatus();
+  // auto-restore if already permitted
+  (async()=>{ try{ const h = supportsDirHandle()? await idbGet(DB_KEY_DIR): null; if(h){ const p = await h.queryPermission({mode:"read"}).catch(()=>"prompt"); if(p==="granted"){ restoreRememberedFolder(); } } }catch{} })();
       });
       actions.append(bDel);
       row.append(meta, actions);
@@ -473,6 +719,10 @@
     queue = [];
     renderQueue();
     updateNowPlaying();
+  // remembered folder status (A)
+  updateFolderStatus();
+  // auto-restore if already permitted
+  (async()=>{ try{ const h = supportsDirHandle()? await idbGet(DB_KEY_DIR): null; if(h){ const p = await h.queryPermission({mode:"read"}).catch(()=>"prompt"); if(p==="granted"){ restoreRememberedFolder(); } } }catch{} })();
     toast("キューを空にした");
   });
   $("#qShuffleBtn").addEventListener("click", ()=>{
@@ -782,6 +1032,10 @@
   renderQueue();
   renderPlaylists();
   updateNowPlaying();
+  // remembered folder status (A)
+  updateFolderStatus();
+  // auto-restore if already permitted
+  (async()=>{ try{ const h = supportsDirHandle()? await idbGet(DB_KEY_DIR): null; if(h){ const p = await h.queryPermission({mode:"read"}).catch(()=>"prompt"); if(p==="granted"){ restoreRememberedFolder(); } } }catch{} })();
   </script>
 </body>
 </html>
