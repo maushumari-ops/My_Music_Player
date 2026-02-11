@@ -1,0 +1,882 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <meta name="theme-color" content="#0b0f14">
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="icon" href="./icons/icon-192.png">
+  <title>Android Mini Player</title>
+  <style>
+    :root{
+      --bg:#0b0f14; --panel:#111a26; --panel2:#0f1620;
+      --text:#e7eef7; --muted:#9fb2c7;
+      --accent:#6ee7ff; --accent2:#a78bfa;
+      --border: rgba(255,255,255,.10);
+      --radius: 18px;
+      --shadow: 0 12px 30px rgba(0,0,0,.45);
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{
+      margin:0;
+      font-family: ui-sans-serif, system-ui, -apple-system, "Noto Sans JP", "Yu Gothic", "Meiryo", sans-serif;
+      background: radial-gradient(1200px 600px at 20% 0%, rgba(110,231,255,.15), transparent 60%),
+                  radial-gradient(900px 500px at 80% 20%, rgba(167,139,250,.14), transparent 60%),
+                  var(--bg);
+      color:var(--text);
+      overflow:hidden;
+    }
+
+    .app{
+      height:100%;
+      display:flex;
+      flex-direction:column;
+    }
+
+    header{
+      padding: 12px 12px 10px;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+    }
+    .brand{
+      display:flex; align-items:center; gap:10px;
+      font-weight:800;
+    }
+    .dot{
+      width:12px;height:12px;border-radius:999px;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      box-shadow: 0 0 0 4px rgba(110,231,255,.12);
+    }
+    .small{font-size:12px;color:var(--muted)}
+
+    .toolbar{
+      padding: 0 12px 10px;
+      display:flex;
+      gap:8px;
+      flex-wrap:wrap;
+      align-items:center;
+    }
+    .btn{
+      border:1px solid var(--border);
+      background: rgba(255,255,255,.06);
+      color:var(--text);
+      padding:10px 12px;
+      border-radius: 14px;
+      cursor:pointer;
+      font-weight:700;
+      transition: transform .08s ease, background .15s ease, border-color .15s ease;
+      user-select:none;
+    }
+    .btn:active{transform: translateY(1px)}
+    .btn.primary{
+      border-color: rgba(110,231,255,.35);
+      background: rgba(110,231,255,.10);
+    }
+    .btn.toggle.on{
+      border-color: rgba(167,139,250,.35);
+      background: rgba(167,139,250,.10);
+    }
+    .seg{
+      display:flex;
+      border:1px solid var(--border);
+      background: rgba(0,0,0,.20);
+      border-radius: 14px;
+      overflow:hidden;
+      margin-left:auto;
+    }
+    .seg button{
+      border:0;
+      background: transparent;
+      color: var(--muted);
+      padding:10px 12px;
+      font-weight:800;
+      cursor:pointer;
+    }
+    .seg button.active{
+      background: rgba(255,255,255,.08);
+      color: var(--text);
+    }
+
+    .search{
+      padding: 0 12px 10px;
+    }
+    input[type="search"]{
+      width:100%;
+      border:1px solid var(--border);
+      background: rgba(0,0,0,.22);
+      color: var(--text);
+      padding:12px 12px;
+      border-radius: 14px;
+      outline:none;
+      font-size:15px;
+    }
+
+    .content{
+      flex:1;
+      min-height:0;
+      padding: 0 8px 0;
+      overflow:auto;
+    }
+    .content::-webkit-scrollbar{width:10px}
+    .content::-webkit-scrollbar-thumb{background: rgba(255,255,255,.10); border-radius: 10px}
+
+    .card{
+      background: linear-gradient(180deg, rgba(255,255,255,.05), transparent 28%), var(--panel);
+      border:1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      margin: 0 4px 12px;
+      overflow:hidden;
+    }
+
+    .list{padding: 8px}
+    .item{
+      display:grid;
+      grid-template-columns: 1fr auto;
+      gap:10px;
+      padding:12px 12px;
+      border-radius: 14px;
+      background: rgba(0,0,0,.14);
+      border:1px solid transparent;
+      margin: 8px 4px;
+      cursor:pointer;
+    }
+    .item:active{transform: translateY(1px)}
+    .item.playing{
+      background: rgba(110,231,255,.10);
+      border-color: rgba(110,231,255,.22);
+    }
+    .title{font-weight:900; line-height:1.15; font-size:15px}
+    .sub{font-size:12px;color:var(--muted);margin-top:6px; display:flex; gap:8px; flex-wrap:wrap}
+    .pill{
+      font-size:11px;
+      padding:3px 8px;
+      border-radius:999px;
+      border:1px solid rgba(255,255,255,.12);
+      background: rgba(0,0,0,.18);
+      color: rgba(231,238,247,.92);
+    }
+    .actions{
+      display:flex;
+      gap:8px;
+      align-items:center;
+    }
+    .iconbtn{
+      width:42px;height:42px;border-radius:14px;
+      display:grid;place-items:center;
+      border:1px solid var(--border);
+      background: rgba(255,255,255,.06);
+      cursor:pointer;
+      font-size:16px;
+      font-weight:900;
+    }
+
+    /* bottom player */
+    .player{
+      padding: 10px 12px calc(12px + env(safe-area-inset-bottom));
+      background: rgba(0,0,0,.35);
+      border-top:1px solid var(--border);
+      backdrop-filter: blur(10px);
+    }
+    .now{
+      display:flex;
+      gap:10px;
+      align-items:center;
+    }
+    .art{
+      width:54px;height:54px;border-radius: 14px;
+      border:1px solid var(--border);
+      background: radial-gradient(50px 50px at 30% 20%, rgba(110,231,255,.25), transparent 70%),
+                  radial-gradient(70px 70px at 80% 70%, rgba(167,139,250,.25), transparent 70%),
+                  rgba(255,255,255,.06);
+      display:grid;place-items:center;
+      flex:0 0 auto;
+    }
+    .meta{min-width:0; flex:1}
+    .meta .t1{
+      font-weight:950;
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+    }
+    .meta .t2{
+      margin-top:4px;
+      color:var(--muted);
+      font-size:12px;
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+    }
+    .controls{
+      margin-top:10px;
+      display:flex;
+      gap:10px;
+      align-items:center;
+      justify-content:space-between;
+    }
+    .big{
+      width:56px;height:56px;border-radius:18px;
+      font-size:20px;
+    }
+    .mid{
+      width:48px;height:48px;border-radius:16px;
+      font-size:18px;
+    }
+    .grow{flex:1}
+    input[type="range"]{width:100%; accent-color: var(--accent)}
+    .time{
+      display:flex; justify-content:space-between;
+      color:var(--muted); font-size:12px;
+      margin-top:6px;
+    }
+
+    .toast{
+      position:fixed;
+      left:12px; right:12px;
+      bottom: calc(96px + env(safe-area-inset-bottom));
+      background: rgba(0,0,0,.65);
+      border:1px solid var(--border);
+      padding:10px 12px;
+      border-radius: 14px;
+      color: rgba(231,238,247,.95);
+      font-size:13px;
+      opacity:0;
+      transform: translateY(8px);
+      transition: opacity .18s ease, transform .18s ease;
+      pointer-events:none;
+    }
+    .toast.show{opacity:1; transform: translateY(0)}
+  </style>
+</head>
+
+<body>
+<div class="app">
+  <header>
+    <div class="brand">
+      <div class="dot"></div>
+      <div>
+        Android Mini Player
+        <div class="small">ローカル音源をタッチで快適に</div>
+      </div>
+    </div>
+  </header>
+
+  <div class="toolbar">
+    <button class="btn primary" id="addBtn">曲を追加</button>
+    <button class="btn" id="folderBtn">フォルダ選択</button>
+    <button class="btn toggle" id="shuffleBtn">シャッフル</button>
+    <button class="btn" id="loopBtn">リピート: OFF</button>
+    <button class="btn toggle" id="wakeBtn" title="画面スリープ対策">画面OFF防止</button>
+
+    <div class="seg" role="tablist" aria-label="view">
+      <button id="tabLib" class="active" role="tab">Library</button>
+      <button id="tabQ" role="tab">Queue</button>
+    </div>
+
+    <input id="fileInput" type="file" accept="audio/*" multiple hidden>
+    <input id="folderInput" type="file" accept="audio/*" multiple webkitdirectory hidden>
+  </div>
+
+  <div class="search">
+    <input type="search" id="search" placeholder="検索：曲名 / アーティスト（ファイル名）" />
+  </div>
+
+  <div class="content">
+    <div class="card" id="libCard">
+      <div class="list" id="library"></div>
+    </div>
+
+    <div class="card" id="qCard" style="display:none;">
+      <div class="list" id="queue"></div>
+    </div>
+  </div>
+
+  <div class="player">
+    <div class="now">
+      <div class="art" aria-hidden="true">♪</div>
+      <div class="meta">
+        <div class="t1" id="nowTitle">曲が未選択</div>
+        <div class="t2" id="nowSub">—</div>
+      </div>
+      <div style="display:flex; gap:8px; align-items:center">
+        <button class="iconbtn mid" id="addQBtn" title="再生中をキューに追加">＋</button>
+      </div>
+    </div>
+
+    <div style="margin-top:10px">
+      <input type="range" id="seek" min="0" max="1000" value="0">
+      <div class="time">
+        <span id="cur">0:00</span>
+        <span id="remain">-0:00</span>
+      </div>
+    </div>
+
+    <div class="controls">
+      <button class="iconbtn mid" id="prevBtn" title="前へ">⏮</button>
+      <button class="iconbtn big" id="playBtn" title="再生/一時停止">▶</button>
+      <button class="iconbtn mid" id="nextBtn" title="次へ">⏭</button>
+
+      <div class="grow" style="margin-left:10px">
+        <div class="small" style="margin-bottom:6px">Vol</div>
+        <input type="range" id="vol" min="0" max="1" step="0.01" value="0.85">
+      </div>
+    </div>
+
+    <audio id="audio" preload="metadata"></audio>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(() => {
+  const $ = (s, r=document) => r.querySelector(s);
+
+  const audio = $("#audio");
+  const libEl = $("#library");
+  const qEl = $("#queue");
+
+  const fileInput = $("#fileInput");
+  const folderInput = $("#folderInput");
+
+  const nowTitle = $("#nowTitle");
+  const nowSub = $("#nowSub");
+
+  const toastEl = $("#toast");
+  let toastT = null;
+  function toast(msg){
+    toastEl.textContent = msg;
+    toastEl.classList.add("show");
+    clearTimeout(toastT);
+    toastT = setTimeout(()=>toastEl.classList.remove("show"), 1300);
+  }
+
+  const fmtTime = (s) => {
+    if (!isFinite(s) || s < 0) return "--:--";
+    s = Math.floor(s);
+    const m = Math.floor(s/60), r = s%60;
+    return `${m}:${String(r).padStart(2,"0")}`;
+  };
+
+  const mkId = () => (crypto?.randomUUID ? crypto.randomUUID() : (Date.now() + "-" + Math.random()));
+
+  /** @type {{id:string, name:string, artist:string, file:File, url:string, duration?:number, rel?:string}[]} */
+  let tracks = [];
+  /** @type {string[]} */
+  let queue = [];
+  let currentId = null;
+
+  const modes = {
+    shuffle: false,
+    loop: "off", // off | all | one
+    wake: false,
+  };
+
+  // ====== persistence (settings only) ======
+  const KEY = "androidMiniPlayer.settings.v1";
+  function loadSettings(){
+    try{
+      const s = JSON.parse(localStorage.getItem(KEY) || "{}");
+      if (typeof s.shuffle === "boolean") modes.shuffle = s.shuffle;
+      if (["off","all","one"].includes(s.loop)) modes.loop = s.loop;
+      if (typeof s.vol === "number") audio.volume = Math.max(0, Math.min(1, s.vol));
+      if (typeof s.wake === "boolean") modes.wake = s.wake;
+    }catch{}
+  }
+  function saveSettings(){
+    localStorage.setItem(KEY, JSON.stringify({
+      shuffle: modes.shuffle,
+      loop: modes.loop,
+      vol: audio.volume,
+      wake: modes.wake
+    }));
+  }
+
+  // ====== Wake Lock (screen) ======
+  let wakeLock = null;
+  async function setWake(on){
+    modes.wake = on;
+    $("#wakeBtn").classList.toggle("on", on);
+    $("#wakeBtn").classList.toggle("toggle", true);
+    $("#wakeBtn").textContent = on ? "画面OFF防止: ON" : "画面OFF防止";
+    saveSettings();
+
+    if (!("wakeLock" in navigator)) {
+      if (on) toast("Wake Lock未対応（端末/ブラウザ依存）");
+      return;
+    }
+    try{
+      if (on && !wakeLock && !audio.paused){
+        wakeLock = await navigator.wakeLock.request("screen");
+        wakeLock.addEventListener("release", ()=>{ wakeLock = null; });
+      }
+      if (!on && wakeLock){
+        await wakeLock.release();
+        wakeLock = null;
+      }
+    }catch{
+      if (on) toast("画面OFF防止が有効化できなかった");
+    }
+  }
+
+  document.addEventListener("visibilitychange", async () => {
+    // re-acquire on return
+    if (modes.wake && !document.hidden && !audio.paused) {
+      await setWake(true);
+    }
+  });
+
+  // ====== Media Session (lockscreen controls) ======
+  function setMediaMeta(t){
+    if (!("mediaSession" in navigator)) return;
+    try{
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: t?.name || "Android Mini Player",
+        artist: t?.artist || "",
+        album: "Local Library",
+      });
+    }catch{}
+  }
+  function bindMediaActions(){
+    if (!("mediaSession" in navigator)) return;
+    const ms = navigator.mediaSession;
+    try{
+      ms.setActionHandler("play", ()=>play());
+      ms.setActionHandler("pause", ()=>pause());
+      ms.setActionHandler("previoustrack", ()=>prev());
+      ms.setActionHandler("nexttrack", ()=>next());
+      ms.setActionHandler("seekto", (d)=>{
+        if (audio.duration && typeof d.seekTime === "number") audio.currentTime = d.seekTime;
+      });
+    }catch{}
+  }
+
+  // ====== parsing helpers ======
+  function guessMeta(file){
+    const base = file.name.replace(/\.[^.]+$/, "");
+    let artist = "Unknown";
+    let title = base;
+    const m = base.match(/^\s*(.+?)\s*-\s*(.+?)\s*$/);
+    if (m){ artist = m[1].trim(); title = m[2].trim(); }
+    return { artist, title };
+  }
+  function isAudio(file){
+    return file.type.startsWith("audio/") || /\.(mp3|m4a|aac|wav|ogg|flac)$/i.test(file.name);
+  }
+
+  // ====== add files ======
+  function addFiles(fileList){
+    const files = Array.from(fileList).filter(isAudio);
+    if (!files.length){ toast("音声ファイルが見つからなかった"); return; }
+
+    for (const file of files){
+      const id = mkId();
+      const url = URL.createObjectURL(file);
+      const meta = guessMeta(file);
+      const rel = file.webkitRelativePath || "";
+      tracks.push({ id, name: meta.title, artist: meta.artist, file, url, rel });
+    }
+
+    // sort: folder path then filename (Android folder pick feels nicer)
+    tracks.sort((a,b)=>(a.rel||a.file.name).localeCompare(b.rel||b.file.name, "ja"));
+
+    renderAll();
+    toast(`${files.length}曲追加`);
+
+    if (!currentId && tracks.length){
+      setCurrent(tracks[0].id, {autoplay:false});
+    }
+  }
+
+  // ====== duration probe (lazy) ======
+  function probeDuration(track){
+    return new Promise((resolve,reject)=>{
+      const a = document.createElement("audio");
+      a.preload = "metadata";
+      a.src = track.url;
+      a.addEventListener("loadedmetadata", ()=>{ resolve(a.duration); a.src=""; }, {once:true});
+      a.addEventListener("error", ()=>reject(new Error("meta error")), {once:true});
+    });
+  }
+
+  // ====== render ======
+  function renderLibrary(){
+    const q = $("#search").value.trim().toLowerCase();
+    libEl.innerHTML = "";
+
+    const shown = tracks.filter(t => {
+      if (!q) return true;
+      const hay = (t.name + " " + (t.artist||"") + " " + t.file.name + " " + (t.rel||"")).toLowerCase();
+      return hay.includes(q);
+    });
+
+    if (!shown.length){
+      libEl.innerHTML = `<div class="small" style="padding:12px;color:rgba(159,178,199,.95)">
+        曲がないか、検索にヒットしないよ。上の「曲を追加」「フォルダ選択」から入れてね。
+      </div>`;
+      return;
+    }
+
+    for (const t of shown){
+      const item = document.createElement("div");
+      item.className = "item" + (t.id===currentId ? " playing" : "");
+      item.addEventListener("click", ()=>setCurrent(t.id, {autoplay:true}));
+
+      const left = document.createElement("div");
+      left.innerHTML = `
+        <div class="title">${escapeHtml(t.name)}</div>
+        <div class="sub">
+          <span class="pill">${escapeHtml(t.artist||"Unknown")}</span>
+          <span class="pill">${t.duration ? fmtTime(t.duration) : "…"}</span>
+        </div>
+      `;
+
+      const actions = document.createElement("div");
+      actions.className = "actions";
+      const b1 = document.createElement("button");
+      b1.className = "iconbtn";
+      b1.textContent = "＋";
+      b1.title = "キューに追加";
+      b1.addEventListener("click", (e)=>{ e.stopPropagation(); enqueue(t.id); });
+
+      const b2 = document.createElement("button");
+      b2.className = "iconbtn";
+      b2.textContent = "⇥";
+      b2.title = "次に再生（キュー先頭）";
+      b2.addEventListener("click", (e)=>{ e.stopPropagation(); playNext(t.id); });
+
+      actions.append(b1,b2);
+      item.append(left, actions);
+      libEl.appendChild(item);
+
+      if (!t.duration){
+        probeDuration(t).then(d=>{
+          if (d && !t.duration){ t.duration = d; if (document.body.contains(item)) renderLibrary(); }
+        }).catch(()=>{});
+      }
+    }
+  }
+
+  function renderQueue(){
+    qEl.innerHTML = "";
+    if (!queue.length){
+      qEl.innerHTML = `<div class="small" style="padding:12px;color:rgba(159,178,199,.95)">
+        キューは空。Libraryの「＋」で“次に流す順”を作れるよ。
+      </div>`;
+      return;
+    }
+
+    queue.forEach((id, i)=>{
+      const t = tracks.find(x=>x.id===id);
+      if (!t) return;
+
+      const item = document.createElement("div");
+      item.className = "item" + (id===currentId ? " playing" : "");
+      item.addEventListener("click", ()=>setCurrent(id, {autoplay:true}));
+
+      const left = document.createElement("div");
+      left.innerHTML = `
+        <div class="title">${escapeHtml(t.name)}</div>
+        <div class="sub">
+          <span class="pill">${escapeHtml(t.artist||"Unknown")}</span>
+          <span class="pill">#${i+1}</span>
+        </div>
+      `;
+
+      const actions = document.createElement("div");
+      actions.className = "actions";
+
+      const up = mkIconBtn("▲","上へ",(e)=>{ e.stopPropagation(); moveQueue(i, -1); });
+      const dn = mkIconBtn("▼","下へ",(e)=>{ e.stopPropagation(); moveQueue(i, +1); });
+      const del = mkIconBtn("✕","削除",(e)=>{ e.stopPropagation(); queue.splice(i,1); renderQueue(); });
+
+      actions.append(up,dn,del);
+      item.append(left, actions);
+      qEl.appendChild(item);
+    });
+  }
+
+  function mkIconBtn(txt, title, onClick){
+    const b = document.createElement("button");
+    b.className = "iconbtn";
+    b.textContent = txt;
+    b.title = title;
+    b.addEventListener("click", onClick);
+    return b;
+  }
+
+  function renderAll(){
+    renderLibrary();
+    renderQueue();
+    updateModeLabels();
+  }
+
+  function escapeHtml(s){
+    return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
+  // ====== playback ======
+  function setCurrent(id, {autoplay}={autoplay:true}){
+    const t = tracks.find(x=>x.id===id);
+    if (!t) return;
+
+    currentId = id;
+    audio.src = t.url;
+    audio.load();
+
+    nowTitle.textContent = t.name;
+    nowSub.textContent = `${t.artist || "Unknown"}  •  ${t.duration ? fmtTime(t.duration) : "--:--"}`;
+
+    setMediaMeta(t);
+    renderAll();
+
+    if (autoplay) play();
+    else updatePlayBtn();
+
+    toast("選択: " + t.name);
+  }
+
+  function updatePlayBtn(){
+    $("#playBtn").textContent = audio.paused ? "▶" : "⏸";
+  }
+
+  async function play(){
+    if (!audio.src){
+      if (tracks[0]) setCurrent(tracks[0].id, {autoplay:true});
+      return;
+    }
+    try{
+      await audio.play();
+      updatePlayBtn();
+      if (modes.wake) await setWake(true);
+    }catch{
+      toast("再生できなかった（形式/権限の可能性）");
+    }
+  }
+
+  async function pause(){
+    audio.pause();
+    updatePlayBtn();
+    if (modes.wake) await setWake(false);
+  }
+
+  function playPause(){
+    if (audio.paused) play();
+    else pause();
+  }
+
+  function pickNextId(){
+    if (!tracks.length) return null;
+    if (modes.loop === "one" && currentId) return currentId;
+
+    if (queue.length){
+      const idx = queue.indexOf(currentId);
+      if (idx >= 0 && idx < queue.length - 1) return queue[idx + 1];
+      if (idx === -1) return queue[0];
+      if (modes.loop === "all") return queue[0];
+      return null;
+    }
+
+    const ids = tracks.map(t=>t.id);
+    const cur = currentId ? ids.indexOf(currentId) : -1;
+    if (modes.shuffle){
+      const pool = ids.filter(x=>x!==currentId);
+      return pool.length ? pool[Math.floor(Math.random()*pool.length)] : ids[0];
+    }
+    const n = cur + 1;
+    if (n < ids.length) return ids[n];
+    if (modes.loop === "all") return ids[0];
+    return null;
+  }
+
+  function pickPrevId(){
+    if (!tracks.length) return null;
+    if (modes.loop === "one" && currentId) return currentId;
+
+    if (queue.length){
+      const idx = queue.indexOf(currentId);
+      if (idx > 0) return queue[idx - 1];
+      if (modes.loop === "all") return queue[queue.length - 1];
+      return queue[0] || tracks[0].id;
+    }
+
+    const ids = tracks.map(t=>t.id);
+    const cur = currentId ? ids.indexOf(currentId) : -1;
+    if (modes.shuffle){
+      const pool = ids.filter(x=>x!==currentId);
+      return pool.length ? pool[Math.floor(Math.random()*pool.length)] : ids[0];
+    }
+    const p = cur - 1;
+    if (p >= 0) return ids[p];
+    if (modes.loop === "all") return ids[ids.length - 1];
+    return ids[0];
+  }
+
+  function next(){
+    const id = pickNextId();
+    if (id) setCurrent(id, {autoplay:true});
+    else pause();
+  }
+
+  function prev(){
+    if (audio.currentTime > 3){ audio.currentTime = 0; return; }
+    const id = pickPrevId();
+    if (id) setCurrent(id, {autoplay:true});
+  }
+
+  // ====== queue ops ======
+  function enqueue(id){
+    queue.push(id);
+    renderQueue();
+    toast("キューに追加");
+  }
+  function playNext(id){
+    const idx = currentId ? queue.indexOf(currentId) : -1;
+    if (idx >= 0) queue.splice(idx+1, 0, id);
+    else queue.unshift(id);
+    renderQueue();
+    toast("次に再生へ");
+  }
+  function moveQueue(i, dir){
+    const j = i + dir;
+    if (j < 0 || j >= queue.length) return;
+    [queue[i], queue[j]] = [queue[j], queue[i]];
+    renderQueue();
+  }
+
+  // ====== seek / volume ======
+  const seek = $("#seek");
+  let seeking = false;
+
+  function syncSeek(){
+    if (!audio.duration || seeking) return;
+    const v = audio.currentTime / audio.duration;
+    seek.value = String(Math.floor(v * 1000));
+    $("#cur").textContent = fmtTime(audio.currentTime);
+    $("#remain").textContent = "-" + fmtTime(audio.duration - audio.currentTime);
+
+    const t = tracks.find(x=>x.id===currentId);
+    if (t && !t.duration){
+      t.duration = audio.duration;
+      nowSub.textContent = `${t.artist || "Unknown"}  •  ${fmtTime(audio.duration)}`;
+      renderLibrary();
+    }
+  }
+
+  seek.addEventListener("input", ()=>{
+    seeking = true;
+    if (!audio.duration) return;
+    const v = Number(seek.value) / 1000;
+    const t = Math.max(0, Math.min(1, v)) * audio.duration;
+    $("#cur").textContent = fmtTime(t);
+    $("#remain").textContent = "-" + fmtTime(audio.duration - t);
+  });
+  seek.addEventListener("change", ()=>{
+    if (!audio.duration) { seeking=false; return; }
+    const v = Number(seek.value) / 1000;
+    audio.currentTime = Math.max(0, Math.min(1, v)) * audio.duration;
+    seeking = false;
+  });
+
+  $("#vol").addEventListener("input", (e)=>{
+    audio.volume = Number(e.target.value);
+    saveSettings();
+  });
+
+  // ====== modes ======
+  function updateModeLabels(){
+    $("#shuffleBtn").classList.toggle("on", modes.shuffle);
+    $("#shuffleBtn").classList.toggle("toggle", true);
+    $("#shuffleBtn").textContent = modes.shuffle ? "シャッフル: ON" : "シャッフル";
+
+    const label = modes.loop === "off" ? "OFF" : (modes.loop === "all" ? "ALL" : "ONE");
+    $("#loopBtn").textContent = "リピート: " + label;
+
+    $("#wakeBtn").classList.toggle("on", modes.wake);
+    $("#wakeBtn").classList.toggle("toggle", true);
+    $("#wakeBtn").textContent = modes.wake ? "画面OFF防止: ON" : "画面OFF防止";
+
+    $("#vol").value = String(audio.volume ?? 0.85);
+  }
+
+  // ====== tabs ======
+  function setTab(which){
+    const lib = (which === "lib");
+    $("#tabLib").classList.toggle("active", lib);
+    $("#tabQ").classList.toggle("active", !lib);
+    $("#libCard").style.display = lib ? "" : "none";
+    $("#qCard").style.display = lib ? "none" : "";
+  }
+
+  // ====== bindings ======
+  $("#addBtn").addEventListener("click", ()=>fileInput.click());
+  fileInput.addEventListener("change", (e)=> addFiles(e.target.files));
+
+  // Folder selection (may not show on some Android file pickers)
+  $("#folderBtn").addEventListener("click", ()=>{
+    try{ folderInput.click(); }
+    catch{ toast("フォルダ選択はこの環境だと難しいかも。曲を追加で複数選択してね"); }
+  });
+  folderInput.addEventListener("change", (e)=> addFiles(e.target.files));
+
+  $("#search").addEventListener("input", renderLibrary);
+
+  $("#shuffleBtn").addEventListener("click", ()=>{
+    modes.shuffle = !modes.shuffle;
+    updateModeLabels();
+    saveSettings();
+    toast(modes.shuffle ? "シャッフルON" : "シャッフルOFF");
+  });
+
+  $("#loopBtn").addEventListener("click", ()=>{
+    modes.loop = (modes.loop === "off") ? "all" : (modes.loop === "all") ? "one" : "off";
+    updateModeLabels();
+    saveSettings();
+  });
+
+  $("#wakeBtn").addEventListener("click", ()=> setWake(!modes.wake));
+
+  $("#tabLib").addEventListener("click", ()=>setTab("lib"));
+  $("#tabQ").addEventListener("click", ()=>setTab("q"));
+
+  $("#playBtn").addEventListener("click", playPause);
+  $("#nextBtn").addEventListener("click", next);
+  $("#prevBtn").addEventListener("click", prev);
+  $("#addQBtn").addEventListener("click", ()=>{
+    if (currentId) enqueue(currentId);
+    else toast("まず曲を選んでね");
+  });
+
+  audio.addEventListener("timeupdate", syncSeek);
+  audio.addEventListener("loadedmetadata", syncSeek);
+  audio.addEventListener("play", ()=>{ updatePlayBtn(); });
+  audio.addEventListener("pause", ()=>{ updatePlayBtn(); });
+
+  audio.addEventListener("ended", async ()=>{
+    const id = pickNextId();
+    if (id) setCurrent(id, {autoplay:true});
+    else {
+      await pause();
+    }
+  });
+
+  // ====== init ======
+  loadSettings();
+  updateModeLabels();
+  bindMediaActions();
+  renderAll();
+
+  // PWA: register service worker (relative path so GitHub Pages subdirectory works)
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.register("./sw.js", { scope: "./" }).catch(()=>{});
+  }
+
+  // Tiny hint
+  setTimeout(()=>toast("「曲を追加」か「フォルダ選択」から入れてね"), 450);
+})();
+</script>
+</body>
+</html>
