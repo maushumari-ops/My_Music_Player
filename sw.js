@@ -1,6 +1,6 @@
 // Mini Music Player PWA Service Worker
 // bump this when you update files:
-const CACHE = "mini-player-v4";
+const CACHE = "mini-player-1.00";
 const ASSETS = [
   "./",
   "./index.html",

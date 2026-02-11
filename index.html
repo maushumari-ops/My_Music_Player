@@ -118,6 +118,24 @@
       .iconbtn.mid{ width:36px; height:36px; border-radius:13px; }
     }
 
+
+    /* ---- tighter responsive header to avoid horizontal overflow (especially Library buttons) ---- */
+    .cardhead{flex-wrap:wrap;}
+    .cardhead .title{flex:1 1 180px; min-width:120px;}
+    .cardhead .row{flex:999 1 260px; justify-content:flex-end;}
+    @media (max-width:520px){
+      .cardhead .title{flex-basis:100%;}
+      .cardhead .row{justify-content:flex-start;}
+      .btn{padding:7px 9px; border-radius:12px;}
+    }
+    /* Now Playing pills: allow wrap on small screens */
+    @media (max-width:520px){
+      #mainCard .player .row[style*="flex-wrap:nowrap"]{flex-wrap:wrap !important;}
+    }
+
+
+    .list{overflow-x:hidden; overscroll-behavior-x:contain;}
+    
 </style>
 </head>
 <body>
@@ -127,7 +145,7 @@
         <div class="logo" aria-hidden="true"></div>
         <div>
           <h1>Mini Music Player</h1>
-          <div class="small">Android向け / PWA対応（端末のファイルを選んで再生）</div>
+          <div class="small">Android向け / PWA対応（端末のファイルを選んで再生） <span class="pill">Ver 1.00</span></div>
         </div>
       </div>
       <div class="seg" role="tablist" aria-label="view">
@@ -251,6 +269,9 @@
   }
 
   const $ = (q)=>document.querySelector(q);
+
+  // App version
+  const APP_VERSION = "1.00";
 
   const audio = $("#audio");
   const playBtn = $("#playBtn");
@@ -416,6 +437,7 @@
 
       toast("フォルダを記憶して読み込み中…");
       const found = await scanDir(dir);
+      found.sort(trackSorter);
       tracks = found;
       $("#libCount").textContent = String(tracks.length);
       // reset queue to library if empty or mismatch
@@ -451,6 +473,7 @@
     }
     toast("記憶フォルダから復元中…");
     const found = await scanDir(dir);
+    found.sort(trackSorter);
     tracks = found;
     $("#libCount").textContent = String(tracks.length);
     queue = tracks.map(t=>t.id);
@@ -487,6 +510,21 @@
 
   const mkId = ()=> Math.random().toString(36).slice(2,10) + Date.now().toString(36);
   const escapeHtml = (s)=> (s??"").toString().replace(/[&<>"']/g, m=>({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[m]));
+
+  // ---- default library sort: by displayed name (ja/numeric aware) ----
+  const _coll = new Intl.Collator(undefined, { numeric:true, sensitivity:"base" });
+  function _tName(t){ return (t.name||t.file?.name||"").toString(); }
+  function _tArtist(t){ return (t.artist||"").toString(); }
+  function trackSorter(a,b){
+    const c1 = _coll.compare(_tName(a), _tName(b));
+    if (c1) return c1;
+    const c2 = _coll.compare(_tArtist(a), _tArtist(b));
+    if (c2) return c2;
+    const ap = ((a.rel||"") + "/" + (a.file?.name||"")).toString();
+    const bp = ((b.rel||"") + "/" + (b.file?.name||"")).toString();
+    return _coll.compare(ap, bp);
+  }
+
   function toast(msg){
     toastEl.textContent = msg;
     toastEl.classList.add("show");
@@ -533,7 +571,9 @@
     if (!arr.length){ toast("音声ファイルがない"); return; }
     const newTracks = arr.map(parseFileToTrack);
     tracks.push(...newTracks);
-    $("#libCount").textContent = String(tracks.length);
+    
+    tracks.sort(trackSorter);
+$("#libCount").textContent = String(tracks.length);
 
     if (!queue.length) queue = tracks.map(t=>t.id);
     renderLibrary();
