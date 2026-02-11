@@ -203,6 +203,8 @@
             <div class="title">Library</div>
             <div class="row">
               <button class="btn primary" id="pickFilesBtn">曲を選ぶ</button>
+              <button class="btn" id="rememberFilesBtn" title="曲を選んで記憶（端末にコピーしない）">記憶(曲)</button>
+              <button class="btn" id="restoreFilesBtn" title="記憶した曲から復元">復元(曲)</button>
               <button class="btn primary" id="pickFolderBtn">フォルダ</button>
               <button class="btn" id="restoreFolderBtn" title="記憶したフォルダから復元">復元</button>
               <button class="btn" id="forgetFolderBtn" title="記憶したフォルダを解除">解除</button>
@@ -215,6 +217,7 @@
               読み込み数：<span id="libCount" class="pill">0</span>
               <span class="pill">※端末の中身はアップロードされない</span>
               <div class="small" style="margin-top:8px;">記憶フォルダ：<span id="folderStatus" class="pill">未設定</span></div>
+              <div class="small" style="margin-top:8px;">記憶曲：<span id="filesStatus" class="pill">未設定</span></div>
             </div>
           </div>
           <div class="list" id="libList"></div>
@@ -301,6 +304,139 @@
   const DB_NAME = "mini-player-db";
   const DB_STORE = "kv";
   const DB_KEY_DIR = "musicDirHandle_v1";
+  const DB_KEY_FILES = "musicFileHandles_v1";
+  const rememberFilesBtn = $("#rememberFilesBtn");
+  const restoreFilesBtn = $("#restoreFilesBtn");
+  const filesStatus = $("#filesStatus");
+
+  function supportsFilePicker(){
+    return !!window.showOpenFilePicker;
+  }
+
+  async function updateFilesStatus(){
+    if (!supportsFilePicker()){
+      filesStatus.textContent = "未対応";
+      rememberFilesBtn.disabled = true;
+      restoreFilesBtn.disabled = true;
+      return;
+    }
+    try{
+      const hs = await idbGet(DB_KEY_FILES);
+      if (!hs || !Array.isArray(hs) || hs.length===0){
+        filesStatus.textContent = "未設定";
+        rememberFilesBtn.disabled = false;
+        restoreFilesBtn.disabled = true;
+        return;
+      }
+      const h0 = hs[0];
+      const perm = await h0.queryPermission({mode:"read"}).catch(()=> "prompt");
+      filesStatus.textContent = perm === "granted" ? `設定済み（${hs.length}）` : `要許可（${hs.length}）`;
+      rememberFilesBtn.disabled = false;
+      restoreFilesBtn.disabled = false;
+    }catch{
+      filesStatus.textContent = "未設定";
+      rememberFilesBtn.disabled = false;
+      restoreFilesBtn.disabled = true;
+    }
+  }
+
+  async function rememberFilesAndLoad(){
+    if (!supportsFilePicker()){
+      toast("この端末は曲の記憶（ファイルピッカー）未対応");
+      return;
+    }
+    try{
+      const handles = await window.showOpenFilePicker({
+        multiple: true,
+        types: [{
+          description: "Audio",
+          accept: {"audio/*": [".mp3",".m4a",".aac",".wav",".flac",".ogg",".opus",".mp4",".webm"]}
+        }]
+      });
+      if (!handles || !handles.length){ toast("選択なし"); return; }
+
+      const ok = [];
+      for (const h of handles){
+        let perm = await h.queryPermission({mode:"read"}).catch(()=> "prompt");
+        if (perm !== "granted") perm = await h.requestPermission({mode:"read"}).catch(()=> "prompt");
+        if (perm === "granted") ok.push(h);
+      }
+      if (!ok.length){ toast("許可が必要"); return; }
+
+      if (navigator.storage && navigator.storage.persist) {
+        try{ await navigator.storage.persist(); }catch{}
+      }
+      await idbSet(DB_KEY_FILES, ok);
+      await updateFilesStatus();
+
+      toast("曲を記憶して読み込み中…");
+      const found = [];
+      for (const h of ok){
+        try{
+          const f = await h.getFile();
+          if (!isAudioLike(f.name, f.type)) continue;
+          const t = parseFileToTrack(f, "");
+          found.push(t);
+        }catch{}
+      }
+      tracks = found;
+      $("#libCount").textContent = String(tracks.length);
+      queue = tracks.map(t=>t.id);
+      renderLibrary(); renderQueue();
+      if (queue.length) setCurrent(queue[0], {autoplay:false});
+      toast(`復元：${tracks.length}曲`);
+    if (tracks.length===0){
+      toast("0曲：この端末ではフォルダ走査が制限される場合があるよ →『記憶(曲)』を試してね");
+    }
+    }catch(e){
+      toast("キャンセル");
+    }
+  }
+
+  async function restoreRememberedFiles(){
+    if (!supportsFilePicker()){
+      toast("未対応");
+      return;
+    }
+    const hs = await idbGet(DB_KEY_FILES);
+    if (!hs || !Array.isArray(hs) || hs.length===0){
+      toast("記憶曲がない（記憶(曲)で選んでね）");
+      return;
+    }
+    const ok = [];
+    for (const h of hs){
+      let perm = await h.queryPermission({mode:"read"}).catch(()=> "prompt");
+      if (perm !== "granted") perm = await h.requestPermission({mode:"read"}).catch(()=> "prompt");
+      if (perm === "granted") ok.push(h);
+    }
+    if (!ok.length){
+      toast("許可が必要（記憶(曲)で選び直してもOK）");
+      await updateFilesStatus();
+      return;
+    }
+
+    toast("記憶曲から復元中…");
+    const found = [];
+    for (const h of ok){
+      try{
+        const f = await h.getFile();
+        if (!isAudioLike(f.name, f.type)) continue;
+        const t = parseFileToTrack(f, "");
+        found.push(t);
+      }catch{}
+    }
+    tracks = found;
+    $("#libCount").textContent = String(tracks.length);
+    queue = tracks.map(t=>t.id);
+    renderLibrary(); renderQueue();
+    if (queue.length) setCurrent(queue[0], {autoplay:false});
+    toast(`復元：${tracks.length}曲`);
+    await updateFilesStatus();
+  }
+
+  rememberFilesBtn?.addEventListener("click", ()=> rememberFilesAndLoad());
+  restoreFilesBtn?.addEventListener("click", ()=> restoreRememberedFiles());
+
 
   function idbOpen(){
     return new Promise((resolve,reject)=>{
@@ -567,7 +703,7 @@
   }
 
   function loadFiles(fileList){
-    const arr = Array.from(fileList || []).filter(f=> f && isAudioLike(f.name, f.type));
+    const arr = Array.from(fileList || []).filter(f=> f && f.type && f.type.startsWith("audio/"));
     if (!arr.length){ toast("音声ファイルがない"); return; }
     const newTracks = arr.map(parseFileToTrack);
     tracks.push(...newTracks);
